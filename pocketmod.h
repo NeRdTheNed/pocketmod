@@ -108,7 +108,11 @@ struct pocketmod_context
 #define POCKETMOD_VOLUME 0x02
 
 /* The size of one sample in bytes */
+#ifdef POCKETMOD_INT_PCM
+#define POCKETMOD_SAMPLE_SIZE sizeof(short[2])
+#else
 #define POCKETMOD_SAMPLE_SIZE sizeof(float[2])
+#endif
 
 /* Finetune adjustment table. Three octaves for each finetune setting. */
 static const signed char _pocketmod_finetune[16][36] = {
@@ -561,9 +565,23 @@ static void _pocketmod_next_tick(pocketmod_context *c)
     }
 }
 
+#ifdef POCKETMOD_INT_PCM
+/* Clip a floating point sample to the [-1, +1] range */
+static float _pocketmod_clip(float value)
+{
+    value = value < -1.0f ? -1.0f : value;
+    value = value > +1.0f ? +1.0f : value;
+    return value;
+}
+#endif
+
 static void _pocketmod_render_channel(pocketmod_context *c,
                                       _pocketmod_chan *chan,
+#ifdef POCKETMOD_INT_PCM
+                                      short *output,
+#else
                                       float *output,
+#endif
                                       int samples_to_write)
 {
     /* Gather some loop data */
@@ -598,8 +616,13 @@ static void _pocketmod_render_channel(pocketmod_context *c,
             float s = (1.0f - t) * sample->data[x0] + t * sample->data[x1];
 #endif
             chan->position += chan->increment;
+#ifdef POCKETMOD_INT_PCM
+            *output++ += (short) (_pocketmod_clip(level_l * s) * 0x7fff);
+            *output++ += (short) (_pocketmod_clip(level_r * s) * 0x7fff);
+#else
             *output++ += level_l * s;
             *output++ += level_r * s;
+#endif
         }
 
         /* Rewind the sample when reaching the loop point */
@@ -791,7 +814,11 @@ int pocketmod_render(pocketmod_context *c, void *buffer, int buffer_size)
     int i, samples_rendered = 0;
     int samples_remaining = buffer_size / POCKETMOD_SAMPLE_SIZE;
     if (c && buffer) {
+#ifdef POCKETMOD_INT_PCM
+        short (*output)[2] = (short(*)[2]) buffer;
+#else
         float (*output)[2] = (float(*)[2]) buffer;
+#endif
         while (samples_remaining > 0) {
 
             /* Calculate the number of samples left in this tick */
